@@ -1,0 +1,205 @@
+---
+title: "Data from WRDS in R"
+author: "Bas Machielsen"
+date: "3/26/2020"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    css: style.css
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(stringr)
+```
+
+## Introduction
+
+In this document, I describe how to run queries to the WRDS database in R. In order to do that, we follow the guide from [the official WRDS website](https://wrds-www.wharton.upenn.edu/pages/support/programming-wrds/programming-r/r-from-your-computer/). Let us try to obtain the annual report data for Norways OBX, France's CAC40 and the Netherlands' AEX indices. 
+
+## Installing the R SQL Client
+
+We need `RPostgres` to interact with the WRDS database. User and password should be stored in a separate file in your home directory, see the guide for details. 
+
+```{r}
+#install.packages('RPostgres')
+library(RPostgres)
+```
+
+
+## RPostgers
+
+After creating .pgpass, to store your password and username for WRDS, we can try to connect to the database.
+
+```{r}
+
+wrds <- dbConnect(Postgres(),
+                  host='wrds-pgdata.wharton.upenn.edu',
+                  port=9737,
+                  dbname='wrds',
+                  sslmode='require',
+                  user='machiels')
+
+```
+
+You will get an object called WRDS, a Large PqConnection, as a confirmation that the connection was made succesfully.
+
+## Queries 
+
+Now, we can start doing queries. Let's get all companies from the AEX, CAC40 and OBX (Norway), and let's try to retrieve the annual data. 
+
+> WRDS data is organized by vendor (such as crsp) and referred to as a library. Each library contains a number of database tables or datasets (such as dsf), which contain the actual data in tabular format with column headers called variables.
+
+
+First, let us look at how to browse. Which databases are there? 
+
+```{r}
+#"Main menu"
+res <- dbSendQuery(wrds, "select distinct table_schema
+                   from information_schema.tables
+                   where table_type ='VIEW'
+                   or table_type ='FOREIGN TABLE'
+                   order by table_schema")
+data <- dbFetch(res, n=-1)
+dbClearResult(res)
+data
+
+```
+
+```{r}
+res <- dbSendQuery(wrds, "select distinct table_name
+                   from information_schema.columns
+                   where table_schema='compg'
+                   order by table_name")
+data <- dbFetch(res, n=-1)
+dbClearResult(res)
+data
+```
+
+```{r}
+res <- dbSendQuery(wrds, "select column_name
+                   from information_schema.columns
+                   where table_schema='compg'
+                   and table_name='g_idxcst_his'
+                   order by column_name")
+data <- dbFetch(res, n=-1)
+dbClearResult(res)
+data
+
+#So these are the index constituents at that point in time 
+```
+
+Now, let us select only those observations that belong to the indices that interest us: 
+
+```{r}
+a <- "select * from compg.g_idxcst_his WHERE gvkeyx = '150262' or gvkeyx = '150093' or gvkeyx = '150267' "
+#Use a dot to go from database to dataset)
+
+res <- dbSendQuery(wrds, a) 
+data <- dbFetch(res, n = -1)
+dbClearResult(res)
+stocks <- data
+
+```
+
+
+Now, let us get back to the "main menu", and try to make a query to the compustat fundamentals annual database and use these firms. 
+
+```{r}
+#"Main menu"
+res <- dbSendQuery(wrds, "select distinct table_schema
+                   from information_schema.tables
+                   where table_type ='VIEW'
+                   or table_type ='FOREIGN TABLE'
+                   order by table_schema")
+data <- dbFetch(res, n=-1)
+dbClearResult(res)
+data
+
+
+#Let's see what's in comp
+res <- dbSendQuery(wrds, "select distinct table_name
+                   from information_schema.columns
+                   where table_schema='comp'
+                   order by table_name")
+data <- dbFetch(res, n=-1)
+dbClearResult(res)
+data
+
+#Let's see what variables are in funda
+res <- dbSendQuery(wrds, "select column_name
+                   from information_schema.columns
+                   where table_schema='comp'
+                   and table_name='funda'
+                   order by column_name")
+data <- dbFetch(res, n=-1)
+dbClearResult(res)
+data
+
+#Now, we can combine variables from different datasets using an extensive query
+"select * from compg.g_idxcst_his WHERE gvkeyx = '150262' or gvkeyx = '150093' or gvkeyx = '150267' "
+
+res <- dbSendQuery(wrds, "select a.*, b.conm, b.cusip, b.datadate from compg.g_idxcst_his a join comp.funda b on a.gvkey = b.gvkey where a.gvkeyx = '150262' or a.gvkeyx = '150093' or a.gvkeyx = '150267' ")
+data <- dbFetch(res, n=-1)
+dbClearResult(res)
+stocks <- data
+
+#Now, let's make another query to retrieve a lot of financial data. For example:
+#act - current assets
+#at - total assets
+#dltt - long term debt
+#emp - employees
+#lt - total liabilities
+#gdwl - goodwill
+res <- dbSendQuery(wrds, "select gvkey, datadate, act, at, dltt, emp, lt, gdwl from comp.funda")
+data <- dbFetch(res, n = -1)
+dbClearResult(res)
+
+#Let's now try to match the stocks that are of interest to us to the financial data
+data <- data %>%
+  mutate(datadate = str_extract(datadate,"[0-9]{4}"))
+
+stocks <- stocks %>%
+  mutate(datadate = str_extract(datadate, "[0-9]{4}"))
+
+ourdata <- left_join(stocks, data, by = c("gvkey", "datadate"))
+
+
+```
+
+And here is a fully reproducible data collection strategy. We can also easily adjust the variables we want by looking up their codes and adding them to the SQL query that we made. 
+
+Finally, we close the connection by the following command:
+
+```{r}
+dbDisconnect(conn =wrds)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
