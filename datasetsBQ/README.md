@@ -12,6 +12,14 @@ All data has been extracted from publicly available sources.
 
 ## Data, short description, and sources
 
+  - india_
+      - religion.csv
+      - population.csv
+      - populationbystate.csv
+      - demographics.csv
+      
+Various datasets about demographics (both historical and contemporary) of india. Source: Wikipedia
+
   - Climate.csv
 
 Climate.csv contains data about population growth, nuclear energy, and
