@@ -12,12 +12,17 @@ All data has been extracted from publicly available sources.
 
 ## Data, short description, and sources
 
+- wars_deathcount.csv
+
+A dataset about the occurrence of wars throughout history. Notes and geometric mean of estimated death count. Source: Wikipedia
+
   - india_
       - religion.csv
       - population.csv
       - populationbystate.csv
       - demographics.csv
       
+
 Various datasets about demographics (both historical and contemporary) of india. Source: Wikipedia
 
   - Climate.csv
