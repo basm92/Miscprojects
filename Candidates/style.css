@@ -1,0 +1,29 @@
+body{
+  font-family: 'Oxygen', sans-serif;
+  font-size: 20px;
+  line-height: 24px;
+}
+
+h1 {
+  font-family: 'Raleway', sans-serif;
+  font-weight: bold;
+  font-size: 24px;
+  color: #a02185
+}
+
+h2 {
+  font-family: 'Raleway', sans-serif;
+  font-weight: bold;
+  font-size: 24px;
+  color: #a02185;
+}
+
+h3, h4{
+  font-family: 'Raleway', sans-serif;
+  font-size: 20px;
+  color: #bdc6c5;
+}
+a { 
+  color: #FF0000; 
+  font-family: 'Times New Roman', sans-serif;
+}

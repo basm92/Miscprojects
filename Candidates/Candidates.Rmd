@@ -1,0 +1,287 @@
+---
+title: "Willem Hovy"
+author: "Bas Machielsen"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    css: style.css
+---
+
+## Introductie
+
+Dit is een kort document om erachter te komen welke nalatenschappen van politici qua grootte/compositie vergelijkbaar zijn met die van W. Hovy. Ik kijk eerst naar collega-Eerste Kamerleden, en daarna probeer ik binnen een algemenere populatie van politici vermogens van een vergelijkbare grootte te identificeren. Uiteindelijk kom ik met verschillende lijstjes van politici van wie de vermogensgrootte en compositie vergelijkbaar is met die van W. Hovy. 
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning = FALSE, message = FALSE)
+
+library(tidyverse)
+library(stringr)
+library(lubridate)
+library(rvest)
+library(readxl)
+library(ggthemes)
+library(janitor)
+library(kableExtra)
+```
+
+## Welke mensen zaten er allemaal in de Eerste Kamer met W. Hovy?
+
+Dit zijn alle personen die vanaf 1890 tot 1920 zijn gekozen in de Eerste Kamer. W. Hovy is gekozen in 1902 en is lid gebleven tot 1915. 
+
+```{r}
+setwd("/home/bas/Documents/UU_PhD_BasMachielsen/Paper1/")
+
+eerstekamerleden <- read_excel("./Data/ek_1815tot1950_uu.xlsx") %>%
+  clean_names() %>%
+  mutate(begin_periode = as.Date(begin_periode),
+         einde_periode = as.Date(einde_periode)) %>%
+  filter(begin_periode > "1890-01-01" & einde_periode < "1920-01-01")
+
+sterftedata <- read_excel("./Data/ek_1815tot1950_uu.xlsx", sheet = 2) %>%
+  clean_names() %>%
+  filter(rubriek == "3020")
+
+geboortedata <- read_excel("./Data/ek_1815tot1950_uu.xlsx", sheet = 2) %>%
+  clean_names() %>%
+  filter(rubriek == "3010")
+
+eerstekamerleden <- merge(eerstekamerleden, geboortedata) %>%
+  rename(geboorteplaats = "waarde", geboortedatum = "datum") %>%
+  select(-rubriek)
+
+eerstekamerleden <- merge(eerstekamerleden, sterftedata) %>%
+  rename(sterfteplaats = "waarde", stertedatum = "datum") %>%
+  select(-rubriek)
+```
+
+```{r}
+kable(eerstekamerleden %>%
+        select(5,7,3)) %>%
+  kable_styling() %>%
+  scroll_box(height = "500px", width = "100%")
+```
+
+## Hoe rijk waren die mensen precies? 
+
+```{r}
+vermogens <- read_excel("./Data/AnalysisFile.xlsx", sheet = "Analysis") %>%
+  select(1:17) %>%
+  clean_names()
+
+eerstekamerleden <- merge(eerstekamerleden, vermogens, by.x = "b1_nummer", by.y = "indexnummer")
+```
+
+- Data met alle Eerste kamerleden die gekozen zijn vanaf 1890 tot 1915. 
+
+```{r}
+ggplot(data = eerstekamerleden, aes(x = nw0)) + geom_histogram(bins = 50, alpha = 0.5) + 
+  geom_vline(linetype = "dashed", xintercept = eerstekamerleden$nw0[which(eerstekamerleden$achternaam == "Hovy")]) + theme_economist_white() + 
+  ggtitle("Frequency acc. to wealth") +
+  geom_text(aes(
+    label = "Wealth of W. Hovy", 
+    x = eerstekamerleden$nw0[which(eerstekamerleden$achternaam == "Hovy")], 
+    y = 5), angle = 90, size = 3)
+```
+
+- Data zonder outliers
+
+```{r}
+eerstekamerleden %>%
+  filter(nw0 < 2*10^6) %>%
+  ggplot(aes(x = nw0)) + geom_histogram(bins = 50, alpha = 0.5) + geom_vline(linetype = "dashed", xintercept = eerstekamerleden$nw0[which(eerstekamerleden$achternaam == "Hovy")]) +
+  theme_economist_white() +
+  ggtitle("Frequency acc. to wealth (truncated)") +
+  geom_text(aes(
+    label = "Wealth of W. Hovy", 
+    x = eerstekamerleden$nw0[which(eerstekamerleden$achternaam == "Hovy")], 
+    y = 5), angle = 90, size = 3)
+
+```
+
+Laten we dus eens kijken naar welke mensen een netto vermogen hadden tussen de 500,000 en 1,000,000 gulden. Wie zijn dat?
+
+```{r}
+vergelijking <- eerstekamerleden %>%
+  filter(nw0 > 500000 & nw0 < 1000000) %>%
+  select(b1_nummer, voorletters, prepositie, achternaam, nw0) %>%
+  rename(netto_vermogen = "nw0") 
+
+vergelijking[,-1] %>%
+  kable()
+```
+<br>
+<br>
+
+- Hoe zag hun vermogenscompositie eruit?
+
+Duprbo: Dutch private bonds  
+Dugobo: Dutch government bonds  
+Foprbo: Foreign private bonds  
+Fogobo: Foreign government bonds  
+Dush: Dutch shares  
+Fosh: Foreign shares  
+Re: Real estate  
+Cash: cash  
+Misc: Miscellaneous  
+
+```{r, fig.width = 10, fig.height = 8}
+vergelijking <- eerstekamerleden %>%
+  filter(nw0 > 500000 & nw0 < 1000000)
+
+vergelijking %>%
+  pivot_longer(16:24, names_to = "variable", values_to = "value") %>%
+  mutate(name = str_c(voorletters, achternaam)) %>%
+  ggplot(aes(x = name, y = value, fill = variable)) + 
+  geom_bar(position = "stack", stat = "identity") + 
+  ggtitle("Bruto vermogenscompositie") + 
+  theme_economist_white() + 
+  theme(axis.text.x = element_text(angle = 90, size = 5))
+```
+
+- Wat deden deze mensen in de rest van hun leven?
+
+```{r}
+cv <- vergelijking %>%
+  merge(
+read_excel("./Data/ek_1815tot1950_uu.xlsx", sheet = 2) %>%
+      clean_names() %>%
+      filter(rubriek == 3500) %>%
+  group_by(b1_nummer) %>%
+  summarise(waarde = list(waarde))
+  ) 
+
+cv %>%
+  select(b1_nummer, voorletters, prepositie, achternaam, nw0, waarde) -> cv
+
+cv %>%
+  separate(6, sep = ",", into = c("a","b","c","d","e","f","g","h")) %>%
+  select(-b1_nummer, -prepositie) %>%
+  mutate_at(4:5, str_replace, "c\\(", "") %>%
+  mutate_if(is.character, ~ (str_replace(.,"\\)",""))) %>%
+  mutate(nw0 = as.numeric(nw0)) %>%
+  kable() %>%
+  kable_styling() %>%
+  scroll_box(width = "100%", height = "500px")
+```
+
+```{r, results = 'asis'}
+a <- character()
+for (i in 1:length(cv$b1_nummer)) {
+  a[i] <- paste(cv[i,2], 
+      cv[i,4],
+      " met een vermogen van ",
+      cv[i,5], 
+      " was in zijn leven ", 
+      paste(unlist(cv[i,6]), collapse = ', '),
+      sep = "")
+}
+
+print(a, sep = "\\s\\s")
+```
+
+
+## Waren er ook nog andere vergelijkbare politici?
+
+- Politici die weliswaar niet in dezelfde periode in de eerste kamer hebben gezeten, maar een vergelijkbaar vermogen (bij sterfte) hadden
+
+Dit zijn politici met een vermogen van groter dan f500.000 maar kleiner dan f700.000. 
+
+```{r}
+vermogens <- vermogens %>%
+  filter(nw0 > 500000, nw0 < 700000) 
+
+eerstkamerleden <- read_excel("./Data/ek_1815tot1950_uu.xlsx") 
+tweedekamerleden <- read_excel("./Data/tk_1815tot1950uu.xlsx")
+bewindslieden <- read_excel("./Data/bewindslieden_1815tot1950_uu.xlsx")
+
+alles <- rbind(eerstkamerleden, tweedekamerleden, bewindslieden) %>%
+  select(1:7) %>%
+  distinct()
+
+vermogens <- merge(vermogens, alles, by.x = "indexnummer", by.y = "b1-nummer")
+
+vermogens %>%
+  select(`voorna(a)m(en)`, achternaam, nw0) %>%
+  kable() %>%
+  kable_styling() %>%
+  scroll_box(height = "700px", width="100%")
+```
+
+Er zijn `r length(vermogens$indexnummer)` politici wier vermogen beschikbaar is, tussen de f500.000 en de f700.000 ligt. 
+
+- Politici met een soortgelijke politieke orientatie (confessionele politici) en een soortgelijk vermogen:
+
+```{r}
+vermogens <- read_excel("./Data/AnalysisFile.xlsx", sheet = "Analysis") %>%
+  clean_names() %>%
+  filter(poldir == "conservatief") %>%
+  filter(nw0 > 300000 & nw0 < 700000)
+
+confessional <- vermogens %>%
+  merge(alles, by.x = "indexnummer", by.y = "b1-nummer") %>%
+  clean_names() %>%
+  select(voorletters, achternaam, polparty, `function`, yod, nw0) 
+
+colnames(confessional) <- c("voorletters","achternaam","polparty","function", "year of death", "nw0")
+confessional %>%
+  kable() %>%
+  kable_styling() %>%
+  scroll_box(height = "500px", width = "100%")
+
+```
+
+- Politici die tussen 1910-1920 zijn overleden (en enigszins in de buurt komen qua vermogen):
+
+```{r}
+vermogens <- read_excel("./Data/AnalysisFile.xlsx", sheet = "Analysis") %>%
+  clean_names() %>%
+  filter(yod > 1909 & yod < 1920)
+
+vermogens %>%
+  filter(nw0 < 2.5e6) %>%
+  ggplot(aes(x = nw0)) + geom_histogram(bins = 50) +
+  theme_economist_white() +
+  ggtitle("Wealth distribution: Died 1909-1920 (Trunc.)") +
+  geom_vline(xintercept = vermogens$nw0[which(vermogens$indexnummer == "00610")], linetype = "dashed")
+```
+
+Laten we dus de politici nemen van rond de f600.000 tot ca. f800.000:
+
+```{r}
+read_excel("./Data/AnalysisFile.xlsx", sheet = "Analysis") %>%
+  clean_names() %>%
+  filter(yod > 1909 & yod < 1920) %>%
+  filter(nw0 > 650000 & nw0 < 900000) %>% 
+  merge(alles, by.x = "indexnummer", by.y = "b1-nummer") %>%
+  select(voorletters, prepositie, achternaam, nw0) %>%
+  kable() %>%
+  kable_styling() %>%
+  scroll_box(height = "500px", width = "100%")
+
+```
+
+<br>
+
+In totaal zijn dat 10 politici. Laten we van deze politici de vermogenspositie nog eens bekijken:
+
+```{r, fig.height= 8, fig.width= 10}
+read_excel("./Data/AnalysisFile.xlsx", sheet = "Analysis") %>%
+  clean_names() %>%
+  filter(yod > 1909 & yod < 1920) %>%
+  filter(nw0 > 650000 & nw0 < 900000) %>% 
+  merge(alles, by.x = "indexnummer", by.y = "b1-nummer") %>%
+  mutate(name = str_c(voorletters, achternaam)) %>%
+  pivot_longer(c("re", "dugobo", "fogobo", "duprbo", "foprbo", "dush", "fosh", "cash", "misc"), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = name, y = value, fill = variable)) + 
+  geom_bar(position = "stack", stat = "identity") + 
+  ggtitle("Bruto vermogenscompositie") + 
+  theme_economist_white() + 
+  theme(axis.text.x = element_text(angle = 90, size = 5))
+```
+
+De variantie onder politici is groot, maar over het algemeen lijken politici het overgrote deel van hun vermogen hebben geinvesteerd in staatsobligaties (buiten- en binnenland), en aandelen, alsook in onroerend goed. Cash en andere bestanddelen zijn verwaarloosbaar t.o.v. voorgenoemde componenten. 
