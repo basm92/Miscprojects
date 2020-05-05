@@ -11,7 +11,7 @@ What projects are in here?
 -   Getting Data from CRSP Guide
 -   BSc Data Guide - Political Connections
 -   Some data treatment for Paul’s paper
--   Datasets used for Big Data, Big Questions course
+-   A manual event study guide in R [Complete]
 -   Excel course slides
 -   Working in Markdown demonstration
 

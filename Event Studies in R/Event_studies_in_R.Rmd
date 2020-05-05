@@ -1,0 +1,233 @@
+---
+title: "Event Studies in R"
+author: "Bas Machielsen"
+date: "5/5/2020"
+output: 
+  html_document: 
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+This vignette briefly explains the basics of doing event studies (as described in MacKinlay, 1997, Event Studies in Economics and Finance) in R. It will make use of several packages, all of which in turn make use of publicly accessible data. Thus, no access or subscription to any data service provider is necessary, all you need is a working version of R and RStudio, and a couple of relevant packages. 
+
+## Installing packages
+
+We begin the manual by installing two categories of relevant packages. First, the more basic packages used to clean the data and model output:
+
+```{r packages 1, warning = FALSE, message = FALSE}
+library(tidyverse)
+library(readxl)
+library(broom)
+```
+
+Secondly, we load the packages specifically relevant to extracting stock prices and calculating the relevant returns:
+
+```{r packages 2, warning = FALSE, message = FALSE}
+library(tidyquant)
+library(timetk)
+```
+
+You can install those packages with `install.packages` if you haven't done so already. Chances are you also have to install serves packages upon which these packages are dependent. 
+
+## Other resources
+
+A couple of relevant resources: 
+
+- [The tidyquant Github manual](https://github.com/business-science/tidyquant)
+
+The readme contains lots of different resources and event provides short tutorials to work with `tidyquant` efficiently. 
+
+- [Coding Finance](https://www.codingfinance.com/post/2018-04-03-calc-returns/) 
+
+Since we will be using only one particular approach here (calculating daily stock returns in a particular manner), it might be useful to realize, and see for yourself, what other approaches exist and how `tidyquant` can handle them easily. 
+
+## Find the tickers
+
+Our next step is to find the relevant tickers for an event study. In this example, I will take all stocks from the Dutch AEX, and see what happened to them on the 16th of March, 2020 (a random date). Consistuents of an index are usually easily found on Yahoo Finance (or any such site), or in the newspapers, etc. I extract them from Yahoo Finance using a bit of (sloppy) scraping, but you can also copy and paste them, and put them into a character vector. 
+
+```{r}
+
+tickers <- xml2::read_html("https://finance.yahoo.com/quote/%5EAEX/components/") %>%
+  rvest::html_nodes(xpath = "/html/body/div[1]/div/div/div[1]/div/div[3]/div[1]/div/div[1]/div/div/section/section/div/table") %>%
+  rvest::html_table(fill = TRUE) %>%
+  as.data.frame() %>%
+  pull(1)
+
+```
+
+
+## Download the stock prices in the estimation period
+
+Obviously, we need to define an **estimation period**. I arbitrarily pick 1st of May to 1st of December, 2019. This will be the period over which we will estimate beta's (or other asset pricing models). `tidyquant` does the rest of the dirty work, and converts prices into returns easily:
+
+
+```{r stocks}
+
+stocks <- tq_get(tickers,
+                        from = "2019-05-01", #Estimation window
+                        to = "2019-12-01",
+                        get = "stock.prices")
+
+#Making returns from prices
+returns <- stocks %>%
+  group_by(symbol) %>%          #Grouping the stocks by the stock symbol
+  tq_transmute(select = adjusted,
+               mutate_fun = periodReturn,
+               period = 'daily',
+               col_rename = 'returns')
+
+
+head(returns)
+```
+
+
+
+## Download the index prices 
+
+Now we also get AEX Index (and after the %>%, we make it into returns)
+
+```{r}
+aex <- tq_get("^AEX",
+                get = "stock.prices",
+                from = "2019-05-01",
+                to = "2019-12-01") %>%
+  tq_transmute(select = adjusted,
+                mutate_fun = periodReturn,
+                period = 'daily',
+                col_rename = 'returns')
+
+head(aex)
+```
+
+# Merging the returns with the index
+
+The next step is the merge the returns of stock i at time t with the corresponding return of the index, $m$ at time $t$. This is very easy to accomplish in R, using `left_join`. 
+
+```{r merging}
+reg <- left_join(returns, aex, by = "date") %>%
+  rename(stock.return = returns.x, aex.return= returns.y)
+
+
+head(reg)
+```
+
+## Calculating the Beta's
+
+Estimating the stock beta's is also very easy. Here, we use the tools of the `dplyr` and `broom` packages to quickly and efficiently estimate all stock beta's:
+
+```{r regression}
+models <- reg %>%
+  group_by(symbol) %>% #For each stock
+  do(model = lm(stock.return ~ aex.return, data = .)) #This is the regression model
+
+# Now, use broom to extract the coefficient (estmiate) from the aex.return variable:
+betas <- models %>%
+  tidy(model) %>%
+  filter(term == "aex.return") %>%
+  select(symbol, estimate)
+
+head(betas)
+```
+
+
+## The actual event study
+
+Next on, we proceed to get stock prices and returns in the actual event window. Let's suppose we are interested in the event window ranging from -10 to +10 (you can change it to something else yoruself). 
+
+I will do it a little bit faster than before, converting them right away to returns. Remember we are interested in the event around 16th of March, so let's define our event window to range from 04th of March to 27th of March (we could also look when exactly weekends and non-trading days are). 
+
+
+```{r stocks evstud}
+stocks2 <- tq_get(tickers,
+                 from = "2020-03-04",
+                 to = "2020-03-27",
+                 get = "stock.prices") %>%
+  group_by(symbol) %>%          #Grouping the stocks by the stock symbol
+  tq_transmute(select = adjusted,
+               mutate_fun = periodReturn,
+               period = 'daily',
+               col_rename = 'returns')
+``` 
+
+We repeat the same step for the AEX index:
+
+```{r aex2}
+aex2 <- tq_get("^AEX",
+                get = "stock.prices",
+                from = "2020-03-04",
+                to = "2020-03-27") %>%
+  tq_transmute(select = adjusted,
+               mutate_fun = periodReturn,
+               period = 'daily',
+               col_rename = 'returns')
+```
+
+
+## Merging, compute ARs and other stats
+
+Next, we will do two things:
+
+1. Merge the stock returns with the AEX returns
+
+2. Compute the abnormal returns
+
+```{r merge again}
+evtstudy <- left_join(stocks2, aex2, by = "date") %>%
+  merge(betas, by = "symbol") %>%
+  rename(stock.return = returns.x, aex.return= returns.y) %>%
+  mutate(abret = stock.return - (aex.return * estimate), 
+         evttime = date - ymd("2020-03-16"))
+
+evtstudy2 <- evtstudy %>%
+  mutate(evttime = as.numeric(evttime)) %>%
+  select(symbol, evttime, abret)
+
+head(evtstudy)
+```
+
+
+## Calculate Cumulative Abnormal Returns and Variances
+
+Finally, we compute cumulative abnormal returns and other stats required for an event study:
+
+```{r cars}
+results <- evtstudy2 %>%
+  group_by(evttime) %>%
+  summarise(avgar = mean(abret), var = var(abret)) %>%
+  mutate(avgcar = cumsum(avgar),
+         avgvar = cumsum(var))  #This comes from eq. 15 and 16 in MacKinley (1997))
+```
+
+## Example graph
+
+Here is an example graph: unsurprisingly, no significant abnormal returns (because I took a random date when nothing unanticipated happened). 
+
+```{r}
+results %>%
+  ggplot(aes(x = evttime, y = avgcar)) + geom_line() +
+  geom_line(aes(x = evttime, y = avgcar + 1.96*sqrt(var)), lty = "dashed") +
+  geom_line(aes(x = evttime, y = avgcar - 1.96*sqrt(var)), lty = "dashed")
+```
+
+## Example regression
+
+The information in the data.frame `evtstudy` can also be used to analyse the results more into depth, for example, by regression the CAR's (-12, 10) on independent variables. The following can be used as input into such a regression: 
+
+```{r}
+evtstudy %>%
+  mutate(evttime = as.numeric(evttime)) %>%
+  group_by(symbol) %>%
+  mutate(car = cumsum(abret)) %>%
+  select(symbol, evttime, car) %>%
+  filter(evttime == 10) %>%
+  head()
+  
+```
+
+
+Thank you for reading. If you have any questions, feel free to contact me on [Github](www.github.com/basm92) or [e-mail](a.h.machielsen@uu.nl). 
